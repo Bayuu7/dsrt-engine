@@ -1,6 +1,6 @@
-// ==============================
-// ShaderMaterial.js — DSRT Engine Core v1.1
-// ==============================
+// ============================================================
+// ShaderMaterial.js — Engine Core v1.2 (Enhanced Revision)
+// ============================================================
 
 import { Material } from './Material.js';
 import { MaterialTexture } from './MaterialTexture.js';
@@ -8,42 +8,58 @@ import { MaterialTexture } from './MaterialTexture.js';
 /**
  * @fileoverview
  * ShaderMaterial
- * @module DSRT/materials/ShaderMaterial
+ * @module Engine/materials/ShaderMaterial
+ *
  * @description
- * A programmable material that allows full control over vertex and fragment shaders.
- * 
- * ShaderMaterial acts as the bridge between CPU-side material parameters
- * (uniforms, defines, textures) and GPU-side shader programs.
- * 
- * It extends the base Material class with GLSL program compilation, uniform management,
- * and runtime binding of textures and lighting data.
+ * ShaderMaterial provides a programmable pipeline interface between
+ * CPU-side material configuration (uniforms, defines, and textures)
+ * and GPU-side shader execution (vertex & fragment stages).
  *
- * @version 1.1
- * @since DSRT Engine 1.1
- * @author
- * DSRT Engine System
- */
-
-/**
- * FLOW OVERVIEW:
+ * It serves as a flexible low-level layer for defining custom
+ * rendering behavior via GLSL code, used for:
+ *  - Post-processing effects
+ *  - Particle shaders
+ *  - Water, reflection, refraction, etc.
+ *
+ * @aspect
+ * Acts as a “bridge” between engine abstractions and raw GPU logic.
+ * It contains data, shader code, binding, and state controls
+ * needed to execute draw calls with user-defined GPU programs.
+ *
+ * @flow
  * Geometry → ShaderMaterial → Renderer → GPU
+ * 
+ * @components
+ *  - vertexShader / fragmentShader: GLSL source strings
+ *  - uniforms: Data sent from CPU → GPU
+ *  - textures: Bound GPU images (samplers)
+ *  - compile(): Converts GLSL source into executable GPU program
+ *  - bind(): Activates uniforms/textures before rendering
+ *  - unbind(): Cleans up GPU state post-render
  *
- * Runtime sequence:
- * 1. Geometry provides vertex attributes.
- * 2. ShaderMaterial compiles shaders & binds uniforms/textures.
- * 3. Renderer activates GPU pipeline and executes draw call.
+ * @author
+ * Engine System
+ * @version 1.2
+ * @since Engine Core v1.2
  */
 
 class ShaderMaterial extends Material {
 
   /**
-   * Constructs a ShaderMaterial instance.
-   * @param {object} [params={}] - Configuration options for shader and uniforms.
+   * @constructor
+   * Creates a programmable shader material.
+   * 
+   * @param {object} [params={}]
+   * Configuration object for shader setup:
+   *   - vertexShader: GLSL source for vertex stage
+   *   - fragmentShader: GLSL source for fragment stage
+   *   - uniforms: CPU variables passed to GPU
+   *   - transparent, depthWrite, depthTest, lit, doubleSided: rendering flags
    */
-  constructor( params = {} ) {
-    super( params );
+  constructor(params = {}) {
+    super(params);
 
-    /** @type {string} */
+    /** @type {string} Identifies this material type. */
     this.type = 'ShaderMaterial';
 
     /** @type {string} GLSL vertex shader source. */
@@ -52,53 +68,59 @@ class ShaderMaterial extends Material {
     /** @type {string} GLSL fragment shader source. */
     this.fragmentShader = params.fragmentShader || ShaderMaterial.DefaultFragmentShader;
 
-    /** @type {object} Uniform variables passed to shader. */
+    /** @type {object} Uniform variables passed from CPU to GPU. */
     this.uniforms = params.uniforms ? { ...params.uniforms } : {};
 
-    /** @type {object<string, MaterialTexture>} Dictionary of textures bound to this material. */
+    /** @type {Object.<string, MaterialTexture>} Bound texture samplers. */
     this.textures = {};
 
-    /** @type {WebGLProgram|null} Compiled GPU program. */
+    /** @type {WebGLProgram|null} Compiled GPU program handle. */
     this.program = null;
 
-    /** @type {boolean} Marks if shader program has been compiled successfully. */
+    /** @type {boolean} Whether this shader program was successfully compiled. */
     this.compiled = false;
 
-    /** @type {boolean} If true, enables blending (for transparency, particles, etc). */
+    // ------------------------
+    // Rendering State Flags
+    // ------------------------
+
+    /** @type {boolean} Enables alpha blending (for transparency). */
     this.transparent = params.transparent || false;
 
-    /** @type {boolean} If true, depth writing is disabled. */
+    /** @type {boolean} Controls depth writing. */
     this.depthWrite = params.depthWrite !== false;
 
-    /** @type {boolean} If true, depth testing is active. */
+    /** @type {boolean} Controls depth testing. */
     this.depthTest = params.depthTest !== false;
 
-    /** @type {boolean} If true, material responds to lighting. */
+    /** @type {boolean} Determines whether lighting is applied. */
     this.lit = params.lit !== false;
 
-    /** @type {boolean} If true, material is double-sided. */
+    /** @type {boolean} Renders both sides of geometry if true. */
     this.doubleSided = params.doubleSided || false;
   }
 
   // ============================================================
-  // SHADER COMPILATION & BINDING
+  // === GPU PROGRAM COMPILATION LOGIC ===
   // ============================================================
 
   /**
-   * Compiles shader program from vertex and fragment sources.
+   * Compiles vertex and fragment shaders into a GPU program.
+   * 
    * @param {WebGLRenderingContext} gl
    */
-  compile( gl ) {
-    const vs = this._compileShader( gl, gl.VERTEX_SHADER, this.vertexShader );
-    const fs = this._compileShader( gl, gl.FRAGMENT_SHADER, this.fragmentShader );
+  compile(gl) {
+    const vs = this._compileShader(gl, gl.VERTEX_SHADER, this.vertexShader);
+    const fs = this._compileShader(gl, gl.FRAGMENT_SHADER, this.fragmentShader);
 
     const program = gl.createProgram();
-    gl.attachShader( program, vs );
-    gl.attachShader( program, fs );
-    gl.linkProgram( program );
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
 
-    if ( !gl.getProgramParameter( program, gl.LINK_STATUS ) ) {
-      console.error( '[ShaderMaterial] Program linking failed:', gl.getProgramInfoLog( program ) );
+    // Validation check
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.error('[ShaderMaterial] Program linking failed:', gl.getProgramInfoLog(program));
       return;
     }
 
@@ -107,110 +129,111 @@ class ShaderMaterial extends Material {
   }
 
   /**
-   * Internal helper to compile a shader.
+   * Compiles an individual GLSL shader stage.
+   * 
    * @param {WebGLRenderingContext} gl
    * @param {number} type - gl.VERTEX_SHADER or gl.FRAGMENT_SHADER
    * @param {string} source - GLSL source code
-   * @returns {WebGLShader}
+   * @returns {WebGLShader|null}
    * @private
    */
-  _compileShader( gl, type, source ) {
-    const shader = gl.createShader( type );
-    gl.shaderSource( shader, source );
-    gl.compileShader( shader );
+  _compileShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
 
-    if ( !gl.getShaderParameter( shader, gl.COMPILE_STATUS ) ) {
-      console.error( `[ShaderMaterial] Shader compilation failed: ${gl.getShaderInfoLog( shader )}` );
-      gl.deleteShader( shader );
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      console.error(`[ShaderMaterial] Shader compilation failed: ${gl.getShaderInfoLog(shader)}`);
+      gl.deleteShader(shader);
       return null;
     }
-
     return shader;
   }
 
   // ============================================================
-  // TEXTURE & UNIFORM MANAGEMENT
+  // === UNIFORM & TEXTURE MANAGEMENT ===
   // ============================================================
 
   /**
-   * Assigns a texture to a specific channel.
+   * Assigns a texture to a sampler channel.
    * @param {string} channel
    * @param {MaterialTexture} texture
    */
-  setTexture( channel, texture ) {
-    if ( !(texture instanceof MaterialTexture) ) {
-      console.warn( `[ShaderMaterial] Invalid texture for channel '${channel}'.` );
+  setTexture(channel, texture) {
+    if (!(texture instanceof MaterialTexture)) {
+      console.warn(`[ShaderMaterial] Invalid texture for channel '${channel}'.`);
       return;
     }
     this.textures[channel] = texture;
   }
 
   /**
-   * Sets or updates a uniform variable.
+   * Updates or adds a uniform variable.
    * @param {string} name
    * @param {*} value
    */
-  setUniform( name, value ) {
+  setUniform(name, value) {
     this.uniforms[name] = value;
   }
 
   /**
-   * Binds this material’s program, uniforms, and textures.
+   * Binds the shader program, uniforms, and textures for rendering.
    * @param {WebGLRenderingContext} gl
    */
-  bind( gl ) {
-    if ( !this.compiled ) this.compile( gl );
-    gl.useProgram( this.program );
+  bind(gl) {
+    if (!this.compiled) this.compile(gl);
+    gl.useProgram(this.program);
 
-    // Upload all uniforms
-    for ( const [name, value] of Object.entries( this.uniforms ) ) {
-      const loc = gl.getUniformLocation( this.program, name );
-      if ( loc === null ) continue;
-      if ( typeof value === 'number' ) gl.uniform1f( loc, value );
-      else if ( Array.isArray( value ) ) {
-        switch ( value.length ) {
-          case 2: gl.uniform2fv( loc, value ); break;
-          case 3: gl.uniform3fv( loc, value ); break;
-          case 4: gl.uniform4fv( loc, value ); break;
+    // Upload uniform data
+    for (const [name, value] of Object.entries(this.uniforms)) {
+      const loc = gl.getUniformLocation(this.program, name);
+      if (loc === null) continue;
+
+      if (typeof value === 'number') gl.uniform1f(loc, value);
+      else if (Array.isArray(value)) {
+        switch (value.length) {
+          case 2: gl.uniform2fv(loc, value); break;
+          case 3: gl.uniform3fv(loc, value); break;
+          case 4: gl.uniform4fv(loc, value); break;
         }
       }
     }
 
-    // Bind textures
+    // Bind texture units
     let unit = 0;
-    for ( const [channel, tex] of Object.entries( this.textures ) ) {
-      tex.activate( gl, unit );
-      const loc = gl.getUniformLocation( this.program, channel );
-      if ( loc ) gl.uniform1i( loc, unit );
+    for (const [channel, tex] of Object.entries(this.textures)) {
+      tex.activate(gl, unit);
+      const loc = gl.getUniformLocation(this.program, channel);
+      if (loc) gl.uniform1i(loc, unit);
       unit++;
     }
   }
 
   /**
-   * Unbinds the shader and its textures.
+   * Unbinds shader program and texture states after rendering.
    * @param {WebGLRenderingContext} gl
    */
-  unbind( gl ) {
-    for ( const tex of Object.values( this.textures ) ) tex.deactivate( gl );
-    gl.useProgram( null );
+  unbind(gl) {
+    for (const tex of Object.values(this.textures)) tex.deactivate(gl);
+    gl.useProgram(null);
   }
 
   // ============================================================
-  // SERIALIZATION
+  // === SERIALIZATION & CLEANUP ===
   // ============================================================
 
   /**
-   * Serializes this ShaderMaterial into JSON.
+   * Serializes ShaderMaterial for saving or export.
    * @returns {object}
    */
   toJSON() {
     const base = super.toJSON();
-    return Object.assign( base, {
+    return Object.assign(base, {
       type: 'ShaderMaterial',
       vertexShader: this.vertexShader,
       fragmentShader: this.fragmentShader,
       uniforms: this.uniforms,
-      textures: Object.keys( this.textures ),
+      textures: Object.keys(this.textures),
       flags: {
         transparent: this.transparent,
         depthWrite: this.depthWrite,
@@ -223,24 +246,24 @@ class ShaderMaterial extends Material {
         ...base.metadata,
         class: 'ShaderMaterial'
       }
-    } );
+    });
   }
 
   /**
-   * Disposes GPU program and texture bindings.
+   * Releases GPU resources associated with this material.
    * @param {WebGLRenderingContext} [gl]
    */
-  dispose( gl ) {
+  dispose(gl) {
     super.dispose();
-    if ( gl && this.program ) gl.deleteProgram( this.program );
-    for ( const tex of Object.values( this.textures ) ) tex.dispose( gl );
+    if (gl && this.program) gl.deleteProgram(this.program);
+    for (const tex of Object.values(this.textures)) tex.dispose(gl);
     this.program = null;
     this.textures = {};
     this.compiled = false;
   }
 
   // ============================================================
-  // DEFAULT SHADERS (Fallback)
+  // === DEFAULT FALLBACK SHADERS ===
   // ============================================================
 
   static DefaultVertexShader = `
