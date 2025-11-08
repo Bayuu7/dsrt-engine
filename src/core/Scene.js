@@ -14,14 +14,10 @@ import { DSRT } from '../dsrt.config.js';
  * @class
  * @extends Object3D
  * @memberof DSRT
- * @since DSRT 1.0
+ * @since DSRT 1.1
  */
 class Scene extends Object3D {
 
-  /**
-   * Constructs a new DSRT scene.
-   * @param {object} [options={}] - DSRT options { enabled, active, debug }.
-   */
   constructor( options = {} ) {
     super( options );
 
@@ -32,83 +28,46 @@ class Scene extends Object3D {
 
     this.type = 'Scene';
 
-    /** @type {Color|Texture|null} */
     this.background = null;
-
-    /** @type {Texture|null} */
     this.environment = null;
-
-    /** @type {Fog|null} */
     this.fog = null;
 
-    /** @type {number} */
     this.backgroundBlurriness = 0;
-
-    /** @type {number} */
     this.backgroundIntensity = 1;
-
-    /** @type {Euler} */
     this.backgroundRotation = new Euler();
 
-    /** @type {number} */
     this.environmentIntensity = 1;
-
-    /** @type {Euler} */
     this.environmentRotation = new Euler();
 
-    /** @type {Material|null} */
     this.overrideMaterial = null;
   }
 
-  /**
-   * DSRT lifecycle: mark scene initialized/active.
-   * @return {Scene}
-   */
-  init() {
-    super.init();
-    return this;
+  clone( recursive = true ) {
+    return new Scene().copy( this, recursive );
   }
 
-  /**
-   * DSRT lifecycle: update scene and children.
-   * @param {number} delta
-   * @return {Scene}
-   */
-  update( delta ) {
-    super.update( delta );
-    for ( const child of this.children ) {
-      if ( child.update ) child.update( delta );
-    }
-    return this;
-  }
+  dispose( recursive = true ) {
+    this.dispatchEvent({ type: 'dispose', name: this.name, uuid: this.uuid });
+    if ( this.debug ) console.log( `[DSRT.Scene] dispose '${this.name || this.uuid}' (recursive=${recursive})` );
 
-  /**
-   * DSRT lifecycle: teardown and mark destroyed.
-   * @return {Scene}
-   */
-  destroy() {
-    super.destroy();
-    return this;
-  }
-
-  /**
-   * Optional cleanup hook for GPU resources.
-   * Disposes background/environment textures if disposable.
-   */
-  dispose() {
-    if ( this.debug ) console.log( '[DSRT.Scene] dispose() called' );
     this.background?.dispose?.();
     this.environment?.dispose?.();
     this.overrideMaterial?.dispose?.();
+
+    if ( recursive ) {
+      for ( const child of this.children.slice() ) {
+        child.onRemove?.( this );
+        child.dispose?.( true );
+      }
+    }
+
+    this.parent = null;
+    this.children.length = 0;
+    this.destroyed = true;
+    this.dirtyTransform = false;
   }
 
-  /**
-   * Copies values from another scene.
-   * @param {Scene} source
-   * @param {boolean} recursive
-   * @return {Scene}
-   */
-  copy( source, recursive ) {
+  copy( source, recursive = true ) {
     super.copy( source, recursive );
 
     this.background = source.background?.clone?.() ?? source.background;
@@ -124,7 +83,6 @@ class Scene extends Object3D {
 
     this.overrideMaterial = source.overrideMaterial?.clone?.() ?? source.overrideMaterial;
 
-    // Copy lifecycle flags
     this.enabled = source.enabled;
     this.active = source.active;
     this.destroyed = source.destroyed;
@@ -133,11 +91,6 @@ class Scene extends Object3D {
     return this;
   }
 
-  /**
-   * DSRT serialization addon: include DSRT metadata and audit identity.
-   * @param {object} meta
-   * @return {object}
-   */
   toJSON( meta ) {
     const data = super.toJSON( meta );
 
@@ -159,8 +112,15 @@ class Scene extends Object3D {
     data.dsrt = {
       ...(data.dsrt || {}),
       scene: {
-        metadata: { type: 'DSRT.Scene', version: DSRT.VERSION },
-        audit: { dsrtIsScene: this.dsrtIsScene },
+        metadata: {
+          type: 'DSRT.Scene',
+          version: DSRT.VERSION,
+          revision: 'v1.1',
+          createdAt: (new Date()).toISOString()
+        },
+        audit: {
+          dsrtIsScene: this.dsrtIsScene
+        },
         flags: {
           enabled: this.enabled,
           active: this.active,
@@ -178,26 +138,31 @@ export { Scene };
 
 /**
  * DSRT test hook to verify lifecycle, copy, dispose, and serialization.
- * @return {boolean} ok
+ * @return {boolean}
  */
 export function dsrtTestScene() {
-  const scene = new Scene( { debug: true } );
+  const scene = new Scene({ debug: true });
+  scene.name = 'RootScene';
   scene.init();
 
-  const clone = new Scene().copy( scene );
+  const clone = scene.clone();
   const json = scene.toJSON();
 
   const ok =
     scene.dsrtIsScene &&
-    scene.enabled && scene.active &&
-    clone.enabled === scene.enabled &&
+    scene.enabled &&
+    scene.active &&
+    clone instanceof Scene &&
     clone.backgroundBlurriness === scene.backgroundBlurriness &&
-    json && json.dsrt && json.dsrt.scene &&
+    json &&
+    json.dsrt &&
+    json.dsrt.scene &&
     json.dsrt.scene.audit.dsrtIsScene === true &&
     typeof json.uuid === 'string' &&
     Array.isArray( json.object.backgroundRotation ) &&
     typeof json.object.environmentIntensity === 'number' &&
-    typeof json.object.backgroundType === 'string';
+    typeof json.object.backgroundType === 'string' &&
+    typeof json.dsrt.scene.metadata.createdAt === 'string';
 
   scene.dispose();
   scene.destroy();
