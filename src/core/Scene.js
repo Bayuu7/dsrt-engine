@@ -1,12 +1,20 @@
 import { Object3D } from '../core/Object3D.js';
 import { Euler } from '../math/Euler.js';
+import { Color } from '../math/Color.js';
+import { Texture } from '../textures/Texture.js';
+import { Fog } from '../scenes/Fog.js';
+import { Material } from '../materials/Material.js';
+import { DSRT } from '../dsrt.config.js';
 
 /**
  * DSRT.Scene
  * Root container for all renderable objects in DSRT.
  * Holds background, environment, fog, and override material.
  *
- * @augments Object3D
+ * @class
+ * @extends Object3D
+ * @memberof DSRT
+ * @since DSRT 1.0
  */
 class Scene extends Object3D {
 
@@ -17,133 +25,81 @@ class Scene extends Object3D {
   constructor( options = {} ) {
     super( options );
 
-    /**
-     * DSRT audit identity.
-     * Used for runtime type testing, serialization tagging, and onboarding clarity.
-     *
-     * @type {boolean}
-     * @readonly
-     */
+    /** @readonly */
     this.dsrtIsScene = true;
-
-    /**
-     * Legacy parity flag.
-     * @type {boolean}
-     * @readonly
-     */
+    /** @readonly */
     this.isScene = true;
 
-    /**
-     * Type string for serialization and inspection.
-     * @type {string}
-     */
     this.type = 'Scene';
 
-    /**
-     * Background of the scene.
-     * Can be a Color, Texture, CubeTexture, or null.
-     *
-     * @type {Color|Texture|null}
-     */
+    /** @type {Color|Texture|null} */
     this.background = null;
 
-    /**
-     * Environment map for physical materials.
-     * Cannot override existing material.envMap.
-     *
-     * @type {Texture|null}
-     */
+    /** @type {Texture|null} */
     this.environment = null;
 
-    /**
-     * Fog instance affecting all objects in the scene.
-     * Can be Fog or FogExp2.
-     *
-     * @type {Fog|FogExp2|null}
-     */
+    /** @type {Fog|null} */
     this.fog = null;
 
-    /**
-     * Blurriness of the background.
-     * Only affects environment maps used as background.
-     * Range: 0 to 1.
-     *
-     * @type {number}
-     * @default 0
-     */
+    /** @type {number} */
     this.backgroundBlurriness = 0;
 
-    /**
-     * Intensity multiplier for background color.
-     * Only affects background textures.
-     *
-     * @type {number}
-     * @default 1
-     */
+    /** @type {number} */
     this.backgroundIntensity = 1;
 
-    /**
-     * Rotation of the background in radians.
-     * Only affects environment maps used as background.
-     *
-     * @type {Euler}
-     * @default (0,0,0)
-     */
+    /** @type {Euler} */
     this.backgroundRotation = new Euler();
 
-    /**
-     * Intensity multiplier for environment lighting.
-     * Only affects materials using Scene.environment.
-     *
-     * @type {number}
-     * @default 1
-     */
+    /** @type {number} */
     this.environmentIntensity = 1;
 
-    /**
-     * Rotation of the environment map in radians.
-     * Only affects physical materials using Scene.environment.
-     *
-     * @type {Euler}
-     * @default (0,0,0)
-     */
+    /** @type {Euler} */
     this.environmentRotation = new Euler();
 
-    /**
-     * Material override for all objects in the scene.
-     * Can be bypassed by setting material.allowOverride = false.
-     *
-     * @type {Material|null}
-     */
+    /** @type {Material|null} */
     this.overrideMaterial = null;
   }
 
   /**
    * DSRT lifecycle: mark scene initialized/active.
-   * @return {boolean}
+   * @return {Scene}
    */
   init() {
     super.init();
-    return true;
+    return this;
   }
 
   /**
-   * DSRT lifecycle: optional runtime hook.
+   * DSRT lifecycle: update scene and children.
    * @param {number} delta
-   * @return {null}
+   * @return {Scene}
    */
   update( delta ) {
     super.update( delta );
-    return null;
+    for ( const child of this.children ) {
+      if ( child.update ) child.update( delta );
+    }
+    return this;
   }
 
   /**
    * DSRT lifecycle: teardown and mark destroyed.
-   * @return {boolean}
+   * @return {Scene}
    */
   destroy() {
     super.destroy();
-    return true;
+    return this;
+  }
+
+  /**
+   * Optional cleanup hook for GPU resources.
+   * Disposes background/environment textures if disposable.
+   */
+  dispose() {
+    if ( this.debug ) console.log( '[DSRT.Scene] dispose() called' );
+    this.background?.dispose?.();
+    this.environment?.dispose?.();
+    this.overrideMaterial?.dispose?.();
   }
 
   /**
@@ -155,9 +111,9 @@ class Scene extends Object3D {
   copy( source, recursive ) {
     super.copy( source, recursive );
 
-    if ( source.background ) this.background = source.background.clone();
-    if ( source.environment ) this.environment = source.environment.clone();
-    if ( source.fog ) this.fog = source.fog.clone();
+    this.background = source.background?.clone?.() ?? source.background;
+    this.environment = source.environment?.clone?.() ?? source.environment;
+    this.fog = source.fog?.clone?.() ?? source.fog;
 
     this.backgroundBlurriness = source.backgroundBlurriness;
     this.backgroundIntensity = source.backgroundIntensity;
@@ -166,9 +122,13 @@ class Scene extends Object3D {
     this.environmentIntensity = source.environmentIntensity;
     this.environmentRotation.copy( source.environmentRotation );
 
-    if ( source.overrideMaterial ) this.overrideMaterial = source.overrideMaterial.clone();
+    this.overrideMaterial = source.overrideMaterial?.clone?.() ?? source.overrideMaterial;
 
-    this.matrixAutoUpdate = source.matrixAutoUpdate;
+    // Copy lifecycle flags
+    this.enabled = source.enabled;
+    this.active = source.active;
+    this.destroyed = source.destroyed;
+    this.debug = source.debug;
 
     return this;
   }
@@ -184,16 +144,22 @@ class Scene extends Object3D {
     data.object.backgroundBlurriness = this.backgroundBlurriness;
     data.object.backgroundIntensity = this.backgroundIntensity;
     data.object.backgroundRotation = this.backgroundRotation.toArray();
+    data.object.backgroundType = this.background?.constructor?.name ?? null;
+    data.object.backgroundUUID = this.background?.uuid ?? null;
 
     data.object.environmentIntensity = this.environmentIntensity;
     data.object.environmentRotation = this.environmentRotation.toArray();
+    data.object.environmentType = this.environment?.constructor?.name ?? null;
+    data.object.environmentUUID = this.environment?.uuid ?? null;
 
-    if ( this.fog ) data.object.fog = this.fog.toJSON();
+    data.object.overrideMaterialUUID = this.overrideMaterial?.uuid ?? null;
+
+    if ( this.fog ) data.object.fog = this.fog.toJSON?.() ?? null;
 
     data.dsrt = {
       ...(data.dsrt || {}),
       scene: {
-        metadata: { type: 'DSRT.Scene', version: '1.0.0' },
+        metadata: { type: 'DSRT.Scene', version: DSRT.VERSION },
         audit: { dsrtIsScene: this.dsrtIsScene },
         flags: {
           enabled: this.enabled,
@@ -211,20 +177,30 @@ class Scene extends Object3D {
 export { Scene };
 
 /**
- * DSRT test hook to verify lifecycle and scene serialization.
+ * DSRT test hook to verify lifecycle, copy, dispose, and serialization.
  * @return {boolean} ok
  */
 export function dsrtTestScene() {
   const scene = new Scene( { debug: true } );
   scene.init();
+
+  const clone = new Scene().copy( scene );
   const json = scene.toJSON();
+
   const ok =
     scene.dsrtIsScene &&
     scene.enabled && scene.active &&
+    clone.enabled === scene.enabled &&
+    clone.backgroundBlurriness === scene.backgroundBlurriness &&
     json && json.dsrt && json.dsrt.scene &&
     json.dsrt.scene.audit.dsrtIsScene === true &&
     typeof json.uuid === 'string' &&
-    Array.isArray( json.object.backgroundRotation );
+    Array.isArray( json.object.backgroundRotation ) &&
+    typeof json.object.environmentIntensity === 'number' &&
+    typeof json.object.backgroundType === 'string';
+
+  scene.dispose();
   scene.destroy();
+
   return Boolean( ok && scene.destroyed );
 }
