@@ -774,6 +774,22 @@ export const InterpolationMode = {
   Linear: InterpolateLinear,
   Smooth: InterpolateSmooth
 };
+export const DSRT_ENUM = {
+  ClampMode,
+  InterpolationMode,
+  CompareMode,
+  TimestampQuery,
+  InterpolationSamplingType,
+  InterpolationSamplingMode
+};
+export const DSRT_ENUM = {
+  ClampMode,
+  InterpolationMode,
+  CompareMode,
+  TimestampQuery,
+  InterpolationSamplingType,
+  InterpolationSamplingMode
+};
 
 export const CompareMode = {
   Never: NeverCompare,
