@@ -781,14 +781,7 @@ export const DSRT_ENUM = {
   TimestampQuery,
   InterpolationSamplingType,
   InterpolationSamplingMode
-};
-export const DSRT_ENUM = {
-  ClampMode,
-  InterpolationMode,
-  CompareMode,
-  TimestampQuery,
-  InterpolationSamplingType,
-  InterpolationSamplingMode
+
 };
 
 export const CompareMode = {
