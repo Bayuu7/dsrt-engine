@@ -763,6 +763,28 @@ export const InterpolationSamplingMode = {
   FIRST: 'first',
   EITHER: 'either'
 };
+export const ClampMode = {
+  Edge: ClampToEdgeWrapping,
+  Repeat: RepeatWrapping,
+  Mirror: MirroredRepeatWrapping
+};
+
+export const InterpolationMode = {
+  Discrete: InterpolateDiscrete,
+  Linear: InterpolateLinear,
+  Smooth: InterpolateSmooth
+};
+
+export const CompareMode = {
+  Never: NeverCompare,
+  Less: LessCompare,
+  Equal: EqualCompare,
+  LessEqual: LessEqualCompare,
+  Greater: GreaterCompare,
+  NotEqual: NotEqualCompare,
+  GreaterEqual: GreaterEqualCompare
+};
+
 export const DSRT_CONSTANTS_META = {
   __dsrt_origin: 'dsrt.constants.full',
   __dsrt_id: 'DSRTConstants.v1.0.0'
